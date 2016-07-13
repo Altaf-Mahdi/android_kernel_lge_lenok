@@ -47,6 +47,14 @@ typedef __u64 binder_size_t;
 typedef __u64 binder_uintptr_t;
 #endif
 
+/**
+ * struct binder_object_header - header shared by all binder metadata objects.
+ * @type:	type of the object
+ */
+struct binder_object_header {
+	__u32        type;
+};
+
 /*
  * This is the flattened representation of a Binder object for transfer
  * between processes.  The 'offsets' supplied as part of a binder transaction
@@ -55,9 +63,8 @@ typedef __u64 binder_uintptr_t;
  * between processes.
  */
 struct flat_binder_object {
-	/* 8 bytes for large_flat_header. */
-	__u32		type;
-	__u32		flags;
+	struct binder_object_header	hdr;
+	__u32				flags;
 
 	/* 8 bytes of data. */
 	union {
@@ -69,6 +76,24 @@ struct flat_binder_object {
 	binder_uintptr_t	cookie;
 };
 
+/**
+ * struct binder_fd_object - describes a filedescriptor to be fixed up.
+ * @hdr:	common header structure
+ * @pad_flags:	padding to remain compatible with old userspace code
+ * @pad_binder:	padding to remain compatible with old userspace code
+ * @fd:		file descriptor
+ * @cookie:	opaque data, used by user-space
+ */
+struct binder_fd_object {
+	struct binder_object_header	hdr;
+	__u32				pad_flags;
+	union {
+		binder_uintptr_t	pad_binder;
+		__u32			fd;
+	};
+
+	binder_uintptr_t		cookie;
+};
 /*
  * On 64-bit platforms where user code may run in 32-bits the driver must
  * translate the buffer (and local binder) addresses appropriately.
@@ -86,7 +111,7 @@ struct binder_write_read {
 /* Use with BINDER_VERSION, driver fills in fields. */
 struct binder_version {
 	/* driver protocol version -- increment with incompatible change */
-	__s32       protocol_version;
+	__s32	protocol_version;
 };
 
 /* This is the current protocol version. */
@@ -131,14 +156,16 @@ struct binder_transaction_data {
 	 * identifying the target and contents of the transaction.
 	 */
 	union {
-		__u32	handle;	/* target descriptor of command transaction */
-		binder_uintptr_t ptr;	/* target descriptor of return transaction */
+		/* target descriptor of command transaction */
+		__u32	handle;
+		/* target descriptor of return transaction */
+		binder_uintptr_t ptr;
 	} target;
 	binder_uintptr_t	cookie;	/* target object cookie */
 	__u32		code;		/* transaction command */
 
 	/* General information about the transaction. */
-	__u32	        flags;
+	__u32		flags;
 	pid_t		sender_pid;
 	uid_t		sender_euid;
 	binder_size_t	data_size;	/* number of bytes of data */
@@ -167,7 +194,7 @@ struct binder_ptr_cookie {
 struct binder_handle_cookie {
 	__u32 handle;
 	binder_uintptr_t cookie;
-} __attribute__((packed));
+} __packed;
 
 struct binder_pri_desc {
 	__s32 priority;
