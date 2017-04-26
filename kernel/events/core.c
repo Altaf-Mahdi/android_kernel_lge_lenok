@@ -5343,7 +5343,8 @@ static int perf_swevent_add(struct perf_event *event, int flags)
 
 static void perf_swevent_del(struct perf_event *event, int flags)
 {
-	hlist_del_rcu(&event->hlist_entry);
+	if(!hlist_unhashed(&event->hlist_entry))
+		hlist_del_rcu(&event->hlist_entry);
 }
 
 static void perf_swevent_start(struct perf_event *event, int flags)
@@ -5406,7 +5407,6 @@ static int swevent_hlist_get_cpu(struct perf_event *event, int cpu)
 	int err = 0;
 
 	mutex_lock(&swhash->hlist_mutex);
-
 	if (!swevent_hlist_deref(swhash) && cpu_online(cpu)) {
 		struct swevent_hlist *hlist;
 
@@ -5521,7 +5521,7 @@ static struct pmu perf_swevent = {
 	.read		= perf_swevent_read,
 
 	.event_idx	= perf_swevent_event_idx,
-	.events_across_hotplug = 1,
+	.events_across_hotplug = 0,
 };
 
 #ifdef CONFIG_EVENT_TRACING
@@ -5641,7 +5641,7 @@ static struct pmu perf_tracepoint = {
 	.read		= perf_swevent_read,
 
 	.event_idx	= perf_swevent_event_idx,
-	.events_across_hotplug = 1,
+	.events_across_hotplug = 0,
 };
 
 static inline void perf_tp_register(void)
@@ -5869,7 +5869,7 @@ static struct pmu perf_cpu_clock = {
 	.read		= cpu_clock_event_read,
 
 	.event_idx	= perf_swevent_event_idx,
-	.events_across_hotplug = 1,
+	.events_across_hotplug = 0,
 };
 
 /*
@@ -5950,7 +5950,7 @@ static struct pmu perf_task_clock = {
 	.read		= task_clock_event_read,
 
 	.event_idx	= perf_swevent_event_idx,
-	.events_across_hotplug = 1,
+	.events_across_hotplug = 0,
 };
 
 static void perf_pmu_nop_void(struct pmu *pmu)
@@ -6622,6 +6622,9 @@ SYSCALL_DEFINE5(perf_event_open,
 	err = perf_copy_attr(attr_uptr, &attr);
 	if (err)
 		return err;
+
+	if (attr.constraint_duplicate || attr.__reserved_1)
+		return -EINVAL;
 
 	if (!attr.exclude_kernel) {
 		if (perf_paranoid_kernel() && !capable(CAP_SYS_ADMIN))
@@ -7545,13 +7548,7 @@ static void perf_event_start_swclock(int cpu)
 
 static void perf_event_exit_cpu(int cpu)
 {
-	struct swevent_htable *swhash = &per_cpu(swevent_htable, cpu);
-
 	perf_event_exit_cpu_context(cpu);
-
-	mutex_lock(&swhash->hlist_mutex);
-	swevent_hlist_release(swhash);
-	mutex_unlock(&swhash->hlist_mutex);
 }
 #else
 static inline void perf_event_exit_cpu(int cpu) { }

@@ -240,6 +240,7 @@ armpmu_add(struct perf_event *event, int flags)
 			pr_err("Event: %llx failed constraint check.\n",
 					event->attr.config);
 			event->state = PERF_EVENT_STATE_OFF;
+			err = -EPERM;
 			goto out;
 		}
 
@@ -574,7 +575,7 @@ static void armpmu_init(struct arm_pmu *armpmu)
 	armpmu->pmu.start = armpmu_start;
 	armpmu->pmu.stop = armpmu_stop;
 	armpmu->pmu.read = armpmu_read;
-	armpmu->pmu.events_across_hotplug = 1;
+	armpmu->pmu.events_across_hotplug = 0;
 }
 
 int armpmu_register(struct arm_pmu *armpmu, int type)

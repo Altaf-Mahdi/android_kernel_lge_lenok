@@ -116,8 +116,8 @@ void __init lge_add_persistent_device(void)
 #endif
 
 /* See include/mach/board_lge.h. CAUTION: These strings come from LK. */
-static char *rev_str[] = {"unknown", "evb1", "evb2", "rev_a", "rev_b", "rev_c",
-	"rev_d", "rev_10", "rev_11"};
+static char *rev_str[] = {"unknown", "evb1", "evb2", "evb3", "rev_a", "rev_b",
+	"rev_c", "rev_d", "rev_10", "rev_11"};
 
 static int __init board_revno_setup(char *rev_info)
 {
@@ -150,7 +150,7 @@ int lge_uart_console_enabled(void)
 
 static int __init uart_console_setup(char *str)
 {
-	if (str && !strncmp(str, "enable", 6))
+	if (str && strncmp(str, "null", 4))
 		uart_console_enabled = 1;
 
 	pr_info("UART CONSOLE: %s\n",
@@ -159,4 +159,4 @@ static int __init uart_console_setup(char *str)
 	return 1;
 }
 
-__setup("uart_console=", uart_console_setup);
+__setup("androidboot.console=", uart_console_setup);

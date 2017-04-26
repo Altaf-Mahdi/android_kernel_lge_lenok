@@ -185,18 +185,20 @@ void *diagmem_alloc(struct diagchar_dev *driver, int size, int pool_type)
 		}
 		spin_lock_irqsave(&mempool->lock, flags);
 		if (mempool->count < mempool->poolsize) {
-			atomic_add(1, (atomic_t *)&mempool->count);
 			buf = mempool_alloc(mempool->pool, GFP_ATOMIC);
-			kmemleak_not_leak(buf);
-		}
-		spin_unlock_irqrestore(&mempool->lock, flags);
-		if (!buf) {
-			pr_debug_ratelimited("diag: Unable to allocate buffer from memory pool %s, size: %d/%d count: %d/%d\n",
+			if (!buf) {
+				pr_warn_ratelimited("diag: Unable to allocate buffer from memory pool %s, size: %d/%d count: %d/%d\n",
 					     mempool->name,
 					     size, mempool->itemsize,
 					     mempool->count,
 					     mempool->poolsize);
+				spin_unlock_irqrestore(&mempool->lock, flags);
+				break;
+			}
+			kmemleak_not_leak(buf);
+			atomic_add(1, (atomic_t *)&mempool->count);
 		}
+		spin_unlock_irqrestore(&mempool->lock, flags);
 		break;
 	}
 
@@ -223,8 +225,14 @@ void diagmem_free(struct diagchar_dev *driver, void *buf, int pool_type)
 		}
 		spin_lock_irqsave(&mempool->lock, flags);
 		if (mempool->count > 0) {
-			mempool_free(buf, mempool->pool);
-			atomic_add(-1, (atomic_t *)&mempool->count);
+			/* TODO: clean up memory allocation */
+			if (driver->encoded_rsp_buf != buf) {
+				mempool_free(buf, mempool->pool);
+				atomic_add(-1, (atomic_t *)&mempool->count);
+			} else {
+				pr_debug("diag: %x no in mempool\n",
+						(int)buf);
+			}
 		} else {
 			pr_err_ratelimited("diag: Attempting to free items from %s mempool which is already empty\n",
 					   mempool->name);

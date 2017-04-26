@@ -1,0 +1,29 @@
+/* Copyright (c) 2015, LGE Inc. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+#include "msm8926-nemo.dtsi"
+
+&dsi_lgd_lg4262_cmd {
+	/delete-property/ qcom,mdss-dsi-idle-on-command;
+	/delete-property/ qcom,mdss-dsi-idle-off-command;
+	qcom,mdss-dsi-on-command = [
+				15 01 00 00 00 00 02 53 20 /* Display Control */
+				39 01 00 00 00 00 03 51 F2 00 /* DBV Setting */
+				05 01 00 00 78 00 01 11 /* Sleep out */
+				05 01 00 00 00 00 01 35 /* TE On */
+				05 01 00 00 00 00 01 29 /* Display On */
+				];
+};
+
+&rear_tm {
+	status = "disabled";
+};

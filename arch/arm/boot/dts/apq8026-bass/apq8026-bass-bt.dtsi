@@ -44,6 +44,11 @@
 		qcom,msm-obs;
 	};
 
+	bt_rfkill {
+		compatible = "lge,bluetooth_rfkill";
+		gpio-bt-reset = <&msmgpio 45 0>;
+	};
+
 
        bt_nitrous {
                 compatible = "goog,nitrous";

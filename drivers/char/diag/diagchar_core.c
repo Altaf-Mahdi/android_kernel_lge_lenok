@@ -615,7 +615,7 @@ int diag_copy_remote(char __user *buf, size_t count, int *pret, int *pnum_data)
 
 		for (i = 0; i < diag_hsic[index].poolsize_hsic_write; i++) {
 			if (hsic_buf_tbl[i].length > 0) {
-				pr_debug("diag: HSIC copy to user, i: %d, buf: %p, len: %d\n",
+				pr_debug("diag: HSIC copy to user, i: %d, buf: %pK, len: %d\n",
 					i, hsic_buf_tbl[i].buf,
 					hsic_buf_tbl[i].length);
 				num_data++;
@@ -987,6 +987,7 @@ static int diag_switch_logging(int requested_mode)
 				pr_err("socket process, status: %d\n",
 					status);
 			}
+			driver->socket_process = NULL;
 		}
 	} else if (driver->logging_mode == SOCKET_MODE) {
 		driver->socket_process = current;
@@ -1438,6 +1439,14 @@ static ssize_t diagchar_read(struct file *file, char __user *buf, size_t count,
 
 	mutex_lock(&driver->diagchar_mutex);
 
+	if (driver->data_ready[index] & DEINIT_TYPE) {
+		/*Copy the type of data being passed*/
+		data_type = driver->data_ready[index] & DEINIT_TYPE;
+		COPY_USER_SPACE_OR_EXIT(buf, data_type, 4);
+		driver->data_ready[index] ^= DEINIT_TYPE;
+		goto exit;
+	}
+
 	if ((driver->data_ready[index] & USER_SPACE_DATA_TYPE) && (driver->
 					logging_mode == MEMORY_DEVICE_MODE)) {
 		remote_token = 0;
@@ -1473,7 +1482,7 @@ drop_rsp:
 		for (i = 0; i < driver->buf_tbl_size; i++) {
 			if (driver->buf_tbl[i].length > 0) {
 #ifdef DIAG_DEBUG
-				pr_debug("diag: WRITING the buf address and length is %p , %d\n",
+				pr_debug("diag: WRITING the buf address and length is %pK , %d\n",
 					 driver->buf_tbl[i].buf,
 					 driver->buf_tbl[i].length);
 #endif
@@ -1496,7 +1505,7 @@ drop_rsp:
 				ret += driver->buf_tbl[i].length;
 drop:
 #ifdef DIAG_DEBUG
-				pr_debug("diag: DEQUEUE buf address and length is %p, %d\n",
+				pr_debug("diag: DEQUEUE buf address and length is %pK, %d\n",
 					 driver->buf_tbl[i].buf,
 					 driver->buf_tbl[i].length);
 #endif
@@ -1584,14 +1593,6 @@ drop:
 		/* In case, the thread wakes up and the logging mode is
 		not memory device any more, the condition needs to be cleared */
 		driver->data_ready[index] ^= USER_SPACE_DATA_TYPE;
-	}
-
-	if (driver->data_ready[index] & DEINIT_TYPE) {
-		/*Copy the type of data being passed*/
-		data_type = driver->data_ready[index] & DEINIT_TYPE;
-		COPY_USER_SPACE_OR_EXIT(buf, data_type, 4);
-		driver->data_ready[index] ^= DEINIT_TYPE;
-		goto exit;
 	}
 
 	if (driver->data_ready[index] & MSG_MASKS_TYPE) {
@@ -1833,6 +1834,8 @@ static ssize_t diagchar_write(struct file *file, const char __user *buf,
 		if (payload_size <= MIN_SIZ_ALLOW) {
 				pr_err("diag: Integer underflow in %s, payload size: %d",
 							__func__, payload_size);
+			diagmem_free(driver, buf_copy, POOL_TYPE_COPY);
+			buf_copy = NULL;
 			return -EBADMSG;
 		}
 		token_offset = 4;
@@ -2697,13 +2700,26 @@ static int __init diagchar_init(void)
 
 fail:
 	pr_err("diagchar is not initialized, ret: %d\n", ret);
-	diag_debugfs_cleanup();
-	diagchar_cleanup();
 	diagfwd_exit();
 	diagfwd_cntl_exit();
 	diag_dci_exit();
 	diag_masks_exit();
 	diagfwd_bridge_fn(EXIT);
+	diag_debugfs_cleanup();
+	diagchar_cleanup();
+
+#ifdef CONFIG_DIAGFWD_BRIDGE_CODE
+	kfree(diag_smux);
+	diag_smux = NULL;
+	kfree(diag_hsic_dci);
+	diag_hsic_dci = NULL;
+	kfree(diag_hsic);
+	diag_hsic = NULL;
+	kfree(diag_bridge_dci);
+	diag_bridge_dci = NULL;
+	kfree(diag_bridge);
+	diag_bridge = NULL;
+#endif
 	return -1;
 }
 
@@ -2718,6 +2734,19 @@ static void diagchar_exit(void)
 	diagfwd_bridge_fn(EXIT);
 	diag_debugfs_cleanup();
 	diagchar_cleanup();
+
+#ifdef CONFIG_DIAGFWD_BRIDGE_CODE
+	kfree(diag_smux);
+	diag_smux = NULL;
+	kfree(diag_hsic_dci);
+	diag_hsic_dci = NULL;
+	kfree(diag_hsic);
+	diag_hsic = NULL;
+	kfree(diag_bridge_dci);
+	diag_bridge_dci = NULL;
+	kfree(diag_bridge);
+	diag_bridge = NULL;
+#endif
 	printk(KERN_INFO "done diagchar exit\n");
 }
 

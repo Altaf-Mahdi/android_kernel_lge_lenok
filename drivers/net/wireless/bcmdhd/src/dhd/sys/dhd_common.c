@@ -1,7 +1,7 @@
 /*
  * Broadcom Dongle Host Driver (DHD), common DHD core.
  *
- * Copyright (C) 1999-2014, Broadcom Corporation
+ * Copyright (C) 1999-2015, Broadcom Corporation
  * 
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -21,7 +21,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: dhd_common.c 470785 2014-04-16 11:07:19Z $
+ * $Id: dhd_common.c 479444 2014-05-21 04:19:36Z $
  */
 #include <typedefs.h>
 #include <osl.h>
@@ -145,6 +145,7 @@ enum {
 	IOV_PROPTXSTATUS_MODULE_IGNORE,
 	IOV_PROPTXSTATUS_CREDIT_IGNORE,
 	IOV_PROPTXSTATUS_TXSTATUS_IGNORE,
+	IOV_PROPTXSTATUS_RXPKT_CHK,
 #endif /* PROP_TXSTATUS */
 	IOV_BUS_TYPE,
 #ifdef WLMEDIA_HTSF
@@ -191,6 +192,7 @@ const bcm_iovar_t dhd_iovars[] = {
 	{"pmodule_ignore", IOV_PROPTXSTATUS_MODULE_IGNORE, 0, IOVT_BOOL, 0 },
 	{"pcredit_ignore", IOV_PROPTXSTATUS_CREDIT_IGNORE, 0, IOVT_BOOL, 0 },
 	{"ptxstatus_ignore", IOV_PROPTXSTATUS_TXSTATUS_IGNORE, 0, IOVT_BOOL, 0 },
+	{"rxpkt_chk", IOV_PROPTXSTATUS_RXPKT_CHK, 0, IOVT_BOOL, 0 },
 #endif /* PROP_TXSTATUS */
 	{"bustype", IOV_BUS_TYPE, 0, IOVT_UINT32, 0},
 #ifdef WLMEDIA_HTSF
@@ -538,6 +540,18 @@ dhd_doiovar(dhd_pub_t *dhd_pub, const bcm_iovar_t *vi, uint32 actionid, const ch
 	case IOV_SVAL(IOV_PROPTXSTATUS_TXSTATUS_IGNORE):
 		dhd_wlfc_set_txstatus_ignore(dhd_pub, int_val);
 		break;
+
+	case IOV_GVAL(IOV_PROPTXSTATUS_RXPKT_CHK):
+		bcmerror = dhd_wlfc_get_rxpkt_chk(dhd_pub, &int_val);
+		if (bcmerror != BCME_OK)
+			goto exit;
+		bcopy(&int_val, arg, val_size);
+		break;
+
+	case IOV_SVAL(IOV_PROPTXSTATUS_RXPKT_CHK):
+		dhd_wlfc_set_rxpkt_chk(dhd_pub, int_val);
+		break;
+
 #endif /* PROP_TXSTATUS */
 
 	case IOV_GVAL(IOV_BUS_TYPE):
@@ -1192,32 +1206,80 @@ wl_show_host_event(wl_event_msg_t *event, void *event_data)
 #endif /* SHOW_EVENTS */
 
 int
-wl_host_event(dhd_pub_t *dhd_pub, int *ifidx, void *pktdata,
-              wl_event_msg_t *event, void **data_ptr)
+is_wlc_event_frame(void *pktdata, wl_event_msg_t *event, uint pktlen)
 {
-	/* check whether packet is a BRCM event pkt */
+	uint32 datalen;
+	uint evlen;
+	uint16 subtype, usr_subtype;
 	bcm_event_t *pvt_data = (bcm_event_t *)pktdata;
-	uint8 *event_data;
-	uint32 type, status, datalen;
-	uint16 flags;
-	int evlen;
 
-	if (bcmp(BRCM_OUI, &pvt_data->bcm_hdr.oui[0], DOT11_OUI_LEN)) {
-		DHD_ERROR(("%s: mismatched OUI, bailing\n", __FUNCTION__));
+	if (pktlen < sizeof(bcm_event_t))
+		return (BCME_BADLEN);
+
+	if (bcmp(BRCM_OUI, &pvt_data->bcm_hdr.oui[0], DOT11_OUI_LEN))
 		return (BCME_ERROR);
+
+	subtype = ntoh16_ua((void *)&pvt_data->bcm_hdr.subtype);
+	if (subtype != BCMILCP_SUBTYPE_VENDOR_LONG)
+		return (BCME_ERROR);
+
+	usr_subtype = ntoh16_ua((void *)&pvt_data->bcm_hdr.usr_subtype);
+	if (usr_subtype != BCMILCP_BCM_SUBTYPE_EVENT)
+		return (BCME_ERROR);
+
+	datalen = ntoh32_ua((void *)&pvt_data->event.datalen);
+	evlen = datalen + sizeof(bcm_event_t);
+	if (evlen > pktlen)
+		return (BCME_BADLEN);
+
+	/* copy event header only if proper event pointer is passed,
+	 * if passed NULL, do not copy.
+	 */
+	if (event) {
+		/* memcpy since BRCM event pkt may be unaligned. */
+		memcpy(event, &pvt_data->event, sizeof(wl_event_msg_t));
 	}
 
-	/* BRCM event pkt may be unaligned - use xxx_ua to load user_subtype. */
-	if (ntoh16_ua((void *)&pvt_data->bcm_hdr.usr_subtype) != BCMILCP_BCM_SUBTYPE_EVENT) {
-		DHD_ERROR(("%s: mismatched subtype, bailing\n", __FUNCTION__));
-		return (BCME_ERROR);
+	return BCME_OK;
+}
+
+/* Check whether packet is a BRCM event pkt. If it is, record event data. */
+int
+wl_host_event_get_data(void *pktdata, wl_event_msg_t *event, void **data_ptr, unsigned int pktlen)
+{
+	int ret;
+	bcm_event_t *pvt_data = (bcm_event_t *)pktdata;
+
+	ret = is_wlc_event_frame(pktdata, event, pktlen);
+	if (ret) {
+		DHD_ERROR(("%s: is_wlc_event_frame failed\n", __FUNCTION__));
+		return ret;
 	}
 
 	*data_ptr = &pvt_data[1];
-	event_data = *data_ptr;
 
-	/* memcpy since BRCM event pkt may be unaligned. */
-	memcpy(event, &pvt_data->event, sizeof(wl_event_msg_t));
+	return BCME_OK;
+}
+
+int
+wl_host_event(dhd_pub_t *dhd_pub, int *ifidx, void *pktdata, size_t pktlen,
+              wl_event_msg_t *event, void **data_ptr)
+{
+	bcm_event_t *pvt_data;
+	uint8 *event_data;
+	uint32 type, status, datalen;
+	uint16 flags;
+	uint evlen;
+	int ret;
+
+	/* make sure it is a BRCM event pkt and record event data */
+	ret = wl_host_event_get_data(pktdata, event, data_ptr, pktlen);
+	if (ret != BCME_OK)
+		return ret;
+
+	pvt_data = (bcm_event_t *)pktdata;
+
+	event_data = *data_ptr;
 
 	type = ntoh32_ua((void *)&event->event_type);
 	flags = ntoh16_ua((void *)&event->flags);

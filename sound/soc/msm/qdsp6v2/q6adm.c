@@ -831,10 +831,22 @@ int adm_get_params(int port_id, int copp_idx, uint32_t module_id,
 		rc = -EINVAL;
 		goto adm_get_param_return;
 	}
-	if (params_data) {
+	if ((params_data) &&
+		(ARRAY_SIZE(adm_get_parameters) >
+		idx) &&
+		(ARRAY_SIZE(adm_get_parameters) >=
+		1+adm_get_parameters[idx]+idx) &&
+		(params_length/sizeof(uint32_t) >=
+		adm_get_parameters[idx])) {
 		for (i = 0; i < adm_get_parameters[idx]; i++)
 			params_data[i] = adm_get_parameters[1+i+idx];
 
+	} else {
+		pr_err("%s: Get param data not copied! get_param array size %zd, index %d, params array size %zd, index %d\n",
+		__func__, ARRAY_SIZE(adm_get_parameters),
+		(1+adm_get_parameters[idx]+idx),
+		params_length/sizeof(int),
+		adm_get_parameters[idx]);
 	}
 	rc = 0;
 adm_get_param_return:
@@ -1056,17 +1068,27 @@ static int32_t adm_callback(struct apr_client_data *data, void *priv)
 				break;
 
 			idx = ADM_GET_PARAMETER_LENGTH * copp_idx;
-			if (payload[0] == 0) {
-				if (data->payload_size >
-				    (4 * sizeof(uint32_t))) {
-					adm_get_parameters[idx] = payload[3];
-					pr_debug("GET_PP PARAM:received parameter length: 0x%x\n",
-						adm_get_parameters[idx]);
-					/* storing param size then params */
-					for (i = 0; i < payload[3]; i++)
-						adm_get_parameters[idx+1+i] =
-								payload[4+i];
-				}
+			if ((payload[0] == 0) && (data->payload_size >
+				(4 * sizeof(*payload))) &&
+				(data->payload_size - 4 >=
+				payload[3]) &&
+				(ARRAY_SIZE(adm_get_parameters) >
+				idx) &&
+				(ARRAY_SIZE(adm_get_parameters)-idx-1 >=
+				payload[3])) {
+				adm_get_parameters[idx] = payload[3] /
+							sizeof(uint32_t);
+				/*
+				 * payload[3] is param_size which is
+				 * expressed in number of bytes
+				 */
+				pr_debug("%s: GET_PP PARAM:received parameter length: 0x%x\n",
+					__func__, adm_get_parameters[idx]);
+				/* storing param size then params */
+				for (i = 0; i < payload[3] /
+						sizeof(uint32_t); i++)
+					adm_get_parameters[idx+1+i] =
+							payload[4+i];
 			} else {
 				adm_get_parameters[idx] = -1;
 				pr_err("%s: GET_PP_PARAMS failed, setting size to %d\n",
@@ -1412,11 +1434,13 @@ static struct cal_block_data *adm_find_cal_by_path(int cal_index, int path)
 
 		if (cal_index == ADM_AUDPROC_CAL) {
 			audproc_cal_info = cal_block->cal_info;
-			if (audproc_cal_info->path == path)
+			if ((audproc_cal_info->path == path) &&
+			    (cal_block->cal_data.size > 0))
 				return cal_block;
 		} else if (cal_index == ADM_AUDVOL_CAL) {
 			audvol_cal_info = cal_block->cal_info;
-			if (audvol_cal_info->path == path)
+			if ((audvol_cal_info->path == path) &&
+			    (cal_block->cal_data.size > 0))
 				return cal_block;
 		}
 	}
@@ -1443,12 +1467,14 @@ static struct cal_block_data *adm_find_cal_by_app_type(int cal_index, int path,
 		if (cal_index == ADM_AUDPROC_CAL) {
 			audproc_cal_info = cal_block->cal_info;
 			if ((audproc_cal_info->path == path) &&
-			    (audproc_cal_info->app_type == app_type))
+			    (audproc_cal_info->app_type == app_type) &&
+			    (cal_block->cal_data.size > 0))
 				return cal_block;
 		} else if (cal_index == ADM_AUDVOL_CAL) {
 			audvol_cal_info = cal_block->cal_info;
 			if ((audvol_cal_info->path == path) &&
-			    (audvol_cal_info->app_type == app_type))
+			    (audvol_cal_info->app_type == app_type) &&
+			    (cal_block->cal_data.size > 0))
 				return cal_block;
 		}
 	}
@@ -1477,13 +1503,15 @@ static struct cal_block_data *adm_find_cal(int cal_index, int path,
 			audproc_cal_info = cal_block->cal_info;
 			if ((audproc_cal_info->path == path) &&
 			    (audproc_cal_info->app_type == app_type) &&
-			    (audproc_cal_info->acdb_id == acdb_id))
+			    (audproc_cal_info->acdb_id == acdb_id) &&
+			    (cal_block->cal_data.size > 0))
 				return cal_block;
 		} else if (cal_index == ADM_AUDVOL_CAL) {
 			audvol_cal_info = cal_block->cal_info;
 			if ((audvol_cal_info->path == path) &&
 			    (audvol_cal_info->app_type == app_type) &&
-			    (audvol_cal_info->acdb_id == acdb_id))
+			    (audvol_cal_info->acdb_id == acdb_id) &&
+			    (cal_block->cal_data.size > 0))
 				return cal_block;
 		}
 	}
@@ -1657,6 +1685,7 @@ int adm_open(int port_id, int path, int rate, int channel_mode,
 		flags = ADM_LEGACY_DEVICE_SESSION;
 
 	if ((topology == VPM_TX_SM_ECNS_COPP_TOPOLOGY) ||
+	    (topology == VOICE_TX_SM_LVVEFQ_TOPOLOGY ) ||
 	    (topology == VPM_TX_DM_FLUENCE_COPP_TOPOLOGY) ||
 	    (topology == VPM_TX_DM_RFECNS_COPP_TOPOLOGY))
 		rate = 16000;

@@ -194,7 +194,6 @@ EXPORT_SYMBOL(nitrous_prepare_uart_tx_locked);
  * If an interrupt is received during system suspend, the handling of the
  * interrupt will be delayed until the driver is resumed.  This allows the use
  * of pm runtime framework to wake the serial driver.
- *
  */
 static irqreturn_t nitrous_host_wake_isr(int irq, void *dev)
 {

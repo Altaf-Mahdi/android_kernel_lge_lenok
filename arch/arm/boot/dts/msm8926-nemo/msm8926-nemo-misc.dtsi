@@ -1,0 +1,68 @@
+/* Copyright (c) 2015 LGE Inc. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+&soc {
+	vibrator: vibrator@fd8C3420 {
+		status = "ok";
+		compatible = "msm,pwm_vibrator";
+		reg = <0xfd8C3420 0x400>;
+		haptic-pwr-gpio = <&msmgpio 108 0x00>;
+		motor-pwm-gpio = <&msmgpio 33 0x00>;
+		motor-pwm-func = <3>;
+		motor-amp = <80>;
+		n-value = <127>;
+		clk-name = "cam_gp0_clk";
+		vibe-warmup-delay = <0>;
+		vibe-braking-gain = <100>;
+		vibe-braking-ms = <0>;
+		vibe-driving-ms = <20>;
+		vdd-supply = <&pm8226_l15>;
+		use-vdd-supply;
+	};
+
+	earjack-debugger {
+		compatible = "serial,earjack-debugger";
+		status = "disabled";
+		qcom,usbid-adc_tm = <&pm8226_adc_tm>;
+		qcom,usbid-vadc = <&pm8226_vadc>;
+		lge,adc-low-threshold = <810>;
+		lge,adc-high-threshold = <1000>;
+	};
+
+	/* NFC */
+	i2c@f9923000 {
+		bcm2079x@76 {
+			compatible = "bcm,bcm2079x";
+			status = "ok";
+			reg = <0x76>;
+			interrupt-parent = <&msmgpio>;
+			interrupts = <21 0x2>;
+			bcm,gpio_sda = <&msmgpio 2 0x00>;
+			bcm,gpio_scl = <&msmgpio 3 0x00>;
+			bcm,gpio_ven = <&msmgpio 20 0x00>;
+			bcm,gpio_mode = <&msmgpio 22 0x00>;
+			bcm,gpio_irq = <&msmgpio 21 0x00>;
+			bcm,i2c-pull-up = <1>;
+		};
+	};
+
+	charger-dock {
+		compatible = "charger-dock-detector";
+		status = "ok";
+	};
+
+	load-sw-control {
+		compatible = "lge,load-sw-control";
+		status = "okay";
+		load-sw-gpio = <&msmgpio 31 0>;
+	};
+};

@@ -34,7 +34,7 @@
 #include "msm-pcm-routing-v2.h"
 
 #define CAPTURE_MIN_NUM_PERIODS     2
-#define CAPTURE_MAX_NUM_PERIODS     8
+#define CAPTURE_MAX_NUM_PERIODS     32
 #define CAPTURE_MAX_PERIOD_SIZE     4096
 #define CAPTURE_MIN_PERIOD_SIZE     320
 
@@ -588,6 +588,9 @@ static int msm_lsm_dereg_model(struct snd_pcm_substream *substream,
 		dev_err(rtd->dev,
 			"%s: Failed to set det_mode param, err = %d\n",
 			__func__, rc);
+
+	q6lsm_snd_model_buf_free(prtd->lsm_client);
+
 	return rc;
 }
 
@@ -735,10 +738,9 @@ static int msm_lsm_ioctl_shared(struct snd_pcm_substream *substream,
 			dev_err(rtd->dev,
 				"%s: lsm open failed, %d\n",
 				__func__, ret);
-			q6lsm_client_free(prtd->lsm_client);
-			kfree(prtd);
 			return ret;
 		}
+		prtd->lsm_client->opened = true;
 		dev_dbg(rtd->dev, "%s: Session_ID = %d, APP ID = %d\n",
 			__func__,
 			prtd->lsm_client->session,
@@ -959,6 +961,7 @@ static int msm_lsm_ioctl_shared(struct snd_pcm_substream *substream,
 			"%s: Stopping LSM client session\n",
 			__func__);
 		if (prtd->lsm_client->started) {
+			int i;
 			if (prtd->lsm_client->lab_enable) {
 				atomic_set(&prtd->read_abort, 1);
 				if (prtd->lsm_client->lab_started) {
@@ -968,6 +971,9 @@ static int msm_lsm_ioctl_shared(struct snd_pcm_substream *substream,
 							"%s: stop lab failed ret %d\n",
 							__func__, ret);
 					prtd->lsm_client->lab_started = false;
+					for (i = 0; i < prtd->lsm_client->hw_params.period_count; i++)
+						memset(prtd->lsm_client->lab_buffer[i].data, 0,
+							prtd->lsm_client->lab_buffer[i].size);
 				}
 			}
 			ret = q6lsm_stop(prtd->lsm_client, true);
@@ -1031,6 +1037,7 @@ static int msm_lsm_ioctl_shared(struct snd_pcm_substream *substream,
 		dev_dbg(rtd->dev, "%s: stopping LAB\n", __func__);
 		if (prtd->lsm_client->lab_enable &&
 			prtd->lsm_client->lab_started) {
+			int i;
 			atomic_set(&prtd->read_abort, 1);
 			rc = q6lsm_stop_lab(prtd->lsm_client);
 			if (rc)
@@ -1039,6 +1046,9 @@ static int msm_lsm_ioctl_shared(struct snd_pcm_substream *substream,
 					__func__,
 					prtd->lsm_client->session, rc);
 			prtd->lsm_client->lab_started = false;
+			for (i = 0; i < prtd->lsm_client->hw_params.period_count; i++)
+				memset(prtd->lsm_client->lab_buffer[i].data, 0,
+					prtd->lsm_client->lab_buffer[i].size);
 		}
 	break;
 	default:
@@ -1674,6 +1684,7 @@ static int msm_lsm_open(struct snd_pcm_substream *substream)
 		runtime->private_data = NULL;
 		return -ENOMEM;
 	}
+	prtd->lsm_client->opened = false;
 	return 0;
 }
 
@@ -1742,7 +1753,10 @@ static int msm_lsm_close(struct snd_pcm_substream *substream)
 				 __func__);
 	}
 
-	q6lsm_close(prtd->lsm_client);
+	if (prtd->lsm_client->opened) {
+		q6lsm_close(prtd->lsm_client);
+		prtd->lsm_client->opened = false;
+	}
 	q6lsm_client_free(prtd->lsm_client);
 
 	spin_lock_irqsave(&prtd->event_lock, flags);
@@ -1750,6 +1764,7 @@ static int msm_lsm_close(struct snd_pcm_substream *substream)
 	prtd->event_status = NULL;
 	spin_unlock_irqrestore(&prtd->event_lock, flags);
 	kfree(prtd);
+	runtime->private_data = NULL;
 
 	return 0;
 }
@@ -1853,7 +1868,7 @@ static int msm_lsm_pcm_copy(struct snd_pcm_substream *substream, int ch,
 		return 0;
 	}
 	rc = wait_event_timeout(prtd->period_wait,
-		(atomic_read(&prtd->buf_count) |
+		(atomic_read(&prtd->buf_count) ||
 		atomic_read(&prtd->read_abort)), (2 * HZ));
 	if (!rc) {
 		dev_err(rtd->dev,
@@ -1878,6 +1893,7 @@ static int msm_lsm_pcm_copy(struct snd_pcm_substream *substream, int ch,
 				__func__, fbytes);
 			return -EINVAL;
 		}
+		memset(pcm_buf, 0, fbytes);
 	} else {
 		dev_err(rtd->dev,
 			"%s: Invalid pcm buffer\n", __func__);

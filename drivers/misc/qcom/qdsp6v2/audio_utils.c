@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2014, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2010-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -23,6 +23,8 @@
 #include <linux/compat.h>
 #include <asm/ioctls.h>
 #include "audio_utils.h"
+
+#define FRAME_SIZE            (1 + ((1536+sizeof(struct meta_out_dsp)) * 5))
 
 static int audio_in_pause(struct q6audio_in  *audio)
 {
@@ -329,6 +331,11 @@ long audio_in_ioctl(struct file *file,
 			rc = -EINVAL;
 			break;
 		}
+		if ((cfg.buffer_size > FRAME_SIZE) ||
+			(cfg.buffer_count != FRAME_NUM)) {
+			rc = -EINVAL;
+			break;
+		}
 		audio->str_cfg.buffer_size = cfg.buffer_size;
 		audio->str_cfg.buffer_count = cfg.buffer_count;
 		if (audio->opened) {
@@ -588,6 +595,7 @@ long audio_in_compat_ioctl(struct file *file,
 	}
 	case AUDIO_GET_CONFIG_32: {
 		struct msm_audio_config32 cfg_32;
+		memset(&cfg_32, 0, sizeof(cfg_32));
 		cfg_32.buffer_size = audio->pcm_cfg.buffer_size;
 		cfg_32.buffer_count = audio->pcm_cfg.buffer_count;
 		cfg_32.channel_count = audio->pcm_cfg.channel_count;
